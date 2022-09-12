@@ -3,12 +3,14 @@ import os
 import pandas
 import sqlite3
 import pathlib
-
+import sys
 class DbWindow(QWidget):
     def __init__(self, parent=None):
         super(DbWindow, self).__init__(parent)
         self.w = QDialog(parent)
         self.initUI() # UIの初期化
+        self.currentPath = os.path.dirname(sys.argv[0])
+        self.dbPath = os.path.join(os.path.dirname(sys.argv[0]),"DB\\")
     def initUI(self): # UIの初期化をするメソッド
         self.w.resize(400, 300) # ウィンドウの大きさの設定(横幅, 縦幅)
         self.w.move(400, 300) # ウィンドウを表示する場所の設定(横, 縦)
@@ -80,9 +82,7 @@ class DbWindow(QWidget):
                 index = index.replace("\n","").split("\t")
                 self.wi.clear()
                 self.wi.addItems(index)
-
                 self.csv_category = index
-                print("index",index)
             else:
                 QMessageBox.critical(None, "My message", "csvファイルを指定してください。", QMessageBox.Ok)
         else:
@@ -96,7 +96,7 @@ class DbWindow(QWidget):
 
     def getCsvTxtDialog(self):
         filePath = QFileDialog.getOpenFileName(
-        QFileDialog(), caption="", directory="", filter="*.csv")[0] 
+        QFileDialog(), caption="", directory="", filter="*.csv;*.tsv;*.txt")[0] 
         if filePath:
             self.csvtxt.setText(filePath)
 
@@ -104,18 +104,68 @@ class DbWindow(QWidget):
         self.w.exec_()
 
     def makeDbFile(self):
-        db_folder = os.path.join(os.path.dirname(__file__),"DB")
-        pathlib.Path(db_folder).mkdir(exist_ok=True)
-        db_file = db_folder +"/" + self.dbtxt.text()+".db"
+        pathlib.Path(self.dbPath).mkdir(exist_ok=True)
         ylabel = self.wi2.text().split(",")
-        conn = sqlite3.connect(db_file) # DBを作成する（既に作成されていたらこのDBに接続する）
+        lnum = []
+        lbl = []
+        lblDic = {}
+        for i,l in enumerate(ylabel):
+            if l:
+                lnum.append(i)
+                if isint(self.csv_category[i]):
+                    txt = "INT"
+                    
+                elif isfloat(self.csv_category[i]):
+                    txt = "REAL"
+                else:
+                    txt = "TEXT"
+                lbl.append(l + " " + txt)
+                lblDic[i] = l
+        catNum = []
+        for i,cat in enumerate(self.csv_category):
+            catNum.append(i)
+
+        lbltxt = ",".join(lbl)
+        print("lnum,",lnum)
+        print("lbl,",lbl)
+        print("lbltxt,",lbltxt)
+        print("catNum",catNum)
+        conn = sqlite3.connect(self.dbPath + self.dbtxt.text()+".db") # DBを作成する（既に作成されていたらこのDBに接続する）
         cur = conn.cursor()
-        cur.execute('CREATE TABLE IF NOT EXISTS '+self.tbltxt.text()+'(id INTEGER PRIMARY KEY AUTOINCREMENT, t,TEXT,v1 REAL, v2 REAL, v3 REAL)')
+        cur.execute('CREATE TABLE IF NOT EXISTS '+self.tbltxt.text()+'(id INTEGER PRIMARY KEY AUTOINCREMENT)')
         rdf = pandas.read_sql('SELECT * FROM '+self.tbltxt.text(), conn)
-        df = pandas.read_table(self.csvtxt.text(),  header = None, names = ylabel)
-        ccdf = pandas.concat([df, rdf], join='inner')
-        ccdf.drop_duplicates()
-        df.to_sql(self.tbltxt.text(), conn,if_exists='replace',index=False)
+        print("rdf,",rdf)
+        df = pandas.read_table(self.csvtxt.text(),  header = None, names = catNum)
+        print("df,",df)
+        print("lblDic,",lblDic)
+        renameDf = df.rename(columns=lblDic)
+        print("renameDf,",renameDf)
+        filDf = renameDf.iloc[:,lnum]
+        print("filDf,",filDf)
+        if not rdf.empty:
+            ccdf = pandas.concat([filDf, rdf], join='inner')
+        else:
+            ccdf = filDf
+        print("ccdf1,",ccdf)
+
+        ddDf = ccdf.drop_duplicates()
+        print("ddDf,",ddDf)
+        ddDf.to_sql(self.tbltxt.text(), conn,if_exists='replace',index=False)
         conn.close()
         QMessageBox.information(None, "My message", "DB作成完了", QMessageBox.Ok)
-        
+
+def isint(s):  # 整数値を表しているかどうかを判定
+    try:
+        int(s, 10)  # 文字列を実際にint関数で変換してみる
+    except ValueError:
+        return False
+    else:
+        return True
+
+def isfloat(s):  # 浮動小数点数値を表しているかどうかを判定
+    try:
+        float(s)  # 文字列を実際にfloat関数で変換してみる
+    except ValueError:
+        return False
+    else:
+        return True
